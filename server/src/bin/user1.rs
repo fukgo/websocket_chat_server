@@ -356,6 +356,7 @@ async fn handle_input(
 use tokio::task;
 
 use futures_util::stream::SplitStream;
+use futures_util::future;
 
 async fn run(url: &str) {
     let (ws_stream, _response) = connect_async(url).await.expect("连接失败");
@@ -366,14 +367,19 @@ async fn run(url: &str) {
         in_room: false,
     };
 
+    // 用户输入用户名和密码，获取认证消息
     let (auth_msg, username) = input_user().await;
+    
+    // 发送认证消息
     writer
         .send(auth_msg.to_message().expect("消息序列化失败"))
         .await
         .expect("发送失败");
 
+    // 等待服务器返回token
     let token = await_token(&mut reader).await.expect("获取token失败");
     println!("token: {:?}", token);
+    
     if let Some(token) = token {
         user_status.username = Some(username);
         user_status.is_auth = true;
@@ -383,6 +389,7 @@ async fn run(url: &str) {
         return;
     }
 
+    // 创建任务来处理接收和发送消息
     let receive_handle = task::spawn(async move {
         if let Err(e) = handle_receive(reader).await {
             eprintln!("处理接收消息时发生错误: {:?}", e);
@@ -394,20 +401,13 @@ async fn run(url: &str) {
             eprintln!("处理发送消息时发生错误: {:?}", e);
         }
     });
-    use futures_util::future;
-    // 同时处理接收和发送任务，将两个异步任务并行运行。
-    if let Err(e) = future::try_join(receive_handle, input_handle).await {
-        eprintln!("处理 WebSocket 消息时发生错误: {:?}", e);
-    }
-    // let results = futures_util::future::join_all(vec![
-    //     receive_handle,
-    //     input_handle,
-    // ]).await;
 
-    // if let Some(err) = results.into_iter().find_map(|result| result.err()) {
-    //     eprintln!("处理 WebSocket 消息时发生错误: {:?}", err);
-    // }
+    // 并行运行接收和输入任务
+    if let Err(e) = future::try_join(receive_handle, input_handle).await {
+        eprintln!("WebSocket任务失败: {:?}", e);
+    }
 }
+
 
 #[tokio::main]
 async fn main() {

@@ -1,17 +1,13 @@
-use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver, unbounded};
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::{FutureExt, SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use std::error::Error;
+use std::io::Write;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use std::fs::read;
-use std::io::Write;
-use std::net::SocketAddr;
-use tokio::sync::Mutex;
-use std::sync::{Arc, RwLock};
 use tokio_tungstenite::WebSocketStream;
-use std::error::Error;
-pub enum WsError{
+use uuid::Uuid;
+pub enum WsError {
     ParseError(serde_json::Error),
     AuthError(String),
 }
@@ -45,7 +41,7 @@ pub struct GroupChatMessage {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PrivateChatMessage {
-    pub target_username:String,
+    pub target_username: String,
     pub sender_username: String,
     pub content: String,
 }
@@ -57,11 +53,11 @@ pub struct AuthMessage {
 }
 //info由服务器发出不需要客户端填写
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PrivateInfoMessage{
+pub struct PrivateInfoMessage {
     pub info: String,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GroupInfoMessage{
+pub struct GroupInfoMessage {
     pub info: String,
 }
 
@@ -83,7 +79,6 @@ pub struct WebSocketMessage {
     pub token: Option<Uuid>,
 }
 
-
 impl WebSocketMessage {
     pub fn parse(data: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(data)
@@ -104,8 +99,6 @@ pub struct UserStatus {
     pub in_room: bool,
 }
 
-
-
 impl UserStatus {
     pub fn display(&self) {
         println!("用户名: {:?}", self.username);
@@ -114,86 +107,108 @@ impl UserStatus {
     }
 }
 
-async fn send_msg(sender:&mut UnboundedSender<Message>,ws_msg:WebSocketMessage){
+async fn send_msg(sender: &mut UnboundedSender<Message>, ws_msg: WebSocketMessage) {
     let msg = ws_msg.to_message().unwrap();
     sender.send(msg).await.unwrap();
 }
 
-async fn handle_receive(mut reader:SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>)->Result<(),Box<dyn Error>>{
-    while let Some(msg) = reader.next().await{
+async fn handle_receive(
+    mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+) -> Result<(), Box<dyn Error>> {
+    while let Some(msg) = reader.next().await {
         let ws_msg = WebSocketMessage::parse(msg.unwrap().to_text().unwrap()).expect("parse error");
-        println!("接受ws_msg: {:?}",ws_msg);
-        match ws_msg.message_type{
-            MessageType::Enter=>{
+        println!("接受ws_msg: {:?}", ws_msg);
+        match ws_msg.message_type {
+            MessageType::Enter => {
                 let enter_msg = ws_msg.message_body;
-                match enter_msg{
-                    MessageBody::Enter(enter_msg)=>{
-                        println!("{} 进入了聊天室",enter_msg.sender_username);
+                match enter_msg {
+                    MessageBody::Enter(enter_msg) => {
+                        println!("{} 进入了聊天室", enter_msg.sender_username);
                     }
-                    _=>{println!("e")}
+                    _ => {
+                        println!("e")
+                    }
                 }
             }
-            MessageType::Leave=>{
+            MessageType::Leave => {
                 let leave_msg = ws_msg.message_body;
-                match leave_msg{
-                    MessageBody::Leave(leave_msg)=>{
-                        println!("{} 离开了聊天室",leave_msg.sender_username);
+                match leave_msg {
+                    MessageBody::Leave(leave_msg) => {
+                        println!("{} 离开了聊天室", leave_msg.sender_username);
                     }
-                    _=>{println!("e")}
+                    _ => {
+                        println!("e")
+                    }
                 }
             }
-            MessageType::GroupChat=>{
+            MessageType::GroupChat => {
                 let group_chat_msg = ws_msg.message_body;
-                match group_chat_msg{
-                    MessageBody::GroupChat(group_chat_msg)=>{
-                        println!("(群聊){}: {}",group_chat_msg.sender_username,group_chat_msg.content);
+                match group_chat_msg {
+                    MessageBody::GroupChat(group_chat_msg) => {
+                        println!(
+                            "(群聊){}: {}",
+                            group_chat_msg.sender_username, group_chat_msg.content
+                        );
                     }
-                    _=>{println!("e")}
+                    _ => {
+                        println!("e")
+                    }
                 }
             }
-            MessageType::PrivateChat=>{
+            MessageType::PrivateChat => {
                 let private_chat_msg = ws_msg.message_body;
-                match private_chat_msg{
-                    MessageBody::PrivateChat(private_chat_msg)=>{
-                        println!("(私聊){} to 'me': {}",private_chat_msg.sender_username,private_chat_msg.content);
+                match private_chat_msg {
+                    MessageBody::PrivateChat(private_chat_msg) => {
+                        println!(
+                            "(私聊){} to 'me': {}",
+                            private_chat_msg.sender_username, private_chat_msg.content
+                        );
                     }
-                    _=>{println!("e")}
+                    _ => {
+                        println!("e")
+                    }
                 }
             }
-            MessageType::PrivateInfo=>{
+            MessageType::PrivateInfo => {
                 let private_info_msg = ws_msg.message_body;
-                match private_info_msg{
-                    MessageBody::PrivateInfo(private_info)=>{
-                        println!("(通知): {}",private_info.info);
+                match private_info_msg {
+                    MessageBody::PrivateInfo(private_info) => {
+                        println!("(通知): {}", private_info.info);
                     }
-                    _=>{println!("e")}
+                    _ => {
+                        println!("e")
+                    }
                 }
-            },
-            MessageType::GroupInfo=>{
+            }
+            MessageType::GroupInfo => {
                 let group_info_msg = ws_msg.message_body;
-                match group_info_msg{
-                    MessageBody::GroupInfo(group_info)=>{
-                        println!("(通知): {}",group_info.info);
+                match group_info_msg {
+                    MessageBody::GroupInfo(group_info) => {
+                        println!("(通知): {}", group_info.info);
                     }
-                    _=>{println!("e")}
+                    _ => {
+                        println!("e")
+                    }
                 }
             }
 
-            _=>{println!("e")}
-        
+            _ => {
+                println!("e")
+            }
         }
     }
-    Ok( () )
-
+    Ok(())
 }
 
 use tokio::net::TcpStream;
 use tokio_tungstenite::MaybeTlsStream;
 
-async fn await_token(reader: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>) -> Result<Option<Uuid>, Box<dyn Error>> {
+async fn await_token(
+    reader: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+) -> Result<Option<Uuid>, Box<dyn Error>> {
     if let Some(msg) = reader.next().await {
         let msg = msg?;
-        println!("第一次接受msg:{}",msg);
+        println!("第一次接受msg:{}", msg);
         let ws_msg = WebSocketMessage::parse(&msg.to_text()?)?;
         match ws_msg.message_body {
             MessageBody::PrivateInfo(auth_msg) => {
@@ -207,7 +222,7 @@ async fn await_token(reader: &mut SplitStream<WebSocketStream<MaybeTlsStream<Tcp
 }
 use futures::stream::SplitSink;
 
-async fn input_user()->(WebSocketMessage,String){
+async fn input_user() -> (WebSocketMessage, String) {
     let mut username = String::new();
     print!("请输入用户名: ");
     std::io::stdout().flush().unwrap();
@@ -220,8 +235,8 @@ async fn input_user()->(WebSocketMessage,String){
 
     let username = username.trim().to_string();
     let password = password.trim().to_string();
-    println!("username: {}",username);
-    println!("password: {}",password);
+    println!("username: {}", username);
+    println!("password: {}", password);
     let auth_msg = WebSocketMessage {
         message_type: MessageType::Auth,
         message_body: MessageBody::Auth(AuthMessage {
@@ -230,11 +245,15 @@ async fn input_user()->(WebSocketMessage,String){
         }),
         token: None,
     };
-    (auth_msg,username)
+    (auth_msg, username)
 }
-async fn handle_input(mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>, mut user_status: UserStatus, token_uuid: Option<Uuid>) -> Result<(), Box<dyn Error>> {
+async fn handle_input(
+    mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    mut user_status: UserStatus,
+    token_uuid: Option<Uuid>,
+) -> Result<(), Box<dyn Error>> {
     loop {
-        print!("{:?}",token_uuid);
+        print!("{:?}", token_uuid);
         let mut input_type = String::new();
         println!("Please input your msg_type: \n in:进入聊天室 \n out:退出聊天室 \n group:群聊 \n private:私聊 \n 输入你的选择：");
         std::io::stdout().flush().unwrap();
@@ -336,10 +355,8 @@ async fn handle_input(mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpSt
 
 use tokio::task;
 
-
-
 use futures_util::stream::SplitStream;
-
+use futures_util::future;
 
 async fn run(url: &str) {
     let (ws_stream, _response) = connect_async(url).await.expect("连接失败");
@@ -350,11 +367,19 @@ async fn run(url: &str) {
         in_room: false,
     };
 
-    let (auth_msg,username) = input_user().await;
-    writer.send(auth_msg.to_message().expect("消息序列化失败")).await.expect("发送失败");
+    // 用户输入用户名和密码，获取认证消息
+    let (auth_msg, username) = input_user().await;
+    
+    // 发送认证消息
+    writer
+        .send(auth_msg.to_message().expect("消息序列化失败"))
+        .await
+        .expect("发送失败");
 
+    // 等待服务器返回token
     let token = await_token(&mut reader).await.expect("获取token失败");
     println!("token: {:?}", token);
+    
     if let Some(token) = token {
         user_status.username = Some(username);
         user_status.is_auth = true;
@@ -363,37 +388,29 @@ async fn run(url: &str) {
         eprintln!("认证失败");
         return;
     }
-    
+
+    // 创建任务来处理接收和发送消息
     let receive_handle = task::spawn(async move {
         if let Err(e) = handle_receive(reader).await {
             eprintln!("处理接收消息时发生错误: {:?}", e);
         }
     });
 
-
     let input_handle = task::spawn(async move {
         if let Err(e) = handle_input(writer, user_status, token).await {
             eprintln!("处理发送消息时发生错误: {:?}", e);
         }
     });
-    use futures_util::future;
-    // 同时处理接收和发送任务，将两个异步任务并行运行。
-    if let Err(e) = future::try_join(receive_handle, input_handle).await {
-        eprintln!("处理 WebSocket 消息时发生错误: {:?}", e);
-    }
-    // let results = futures_util::future::join_all(vec![
-    //     receive_handle,
-    //     input_handle,
-    // ]).await;
 
-    // if let Some(err) = results.into_iter().find_map(|result| result.err()) {
-    //     eprintln!("处理 WebSocket 消息时发生错误: {:?}", err);
-    // }
+    // 并行运行接收和输入任务
+    if let Err(e) = future::try_join(receive_handle, input_handle).await {
+        eprintln!("WebSocket任务失败: {:?}", e);
+    }
 }
 
 
 #[tokio::main]
-async fn main(){
+async fn main() {
     let url = "ws://127.0.0.1:8080";
     run(url).await;
 }
