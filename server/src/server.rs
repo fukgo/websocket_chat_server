@@ -57,7 +57,6 @@ impl ChatServer{
     pub async fn handle_connection(&self, stream: TcpStream, addr: SocketAddr) ->anyhow::Result<()>{
         // 处理连接的具体逻辑
         println!("Handling connection from: {}", addr);
-        // 你可以在这里添加读取或写入逻辑
         let ws_stream = tokio_tungstenite::accept_async(stream).await?;
         info!("WebSocket connection established: {}", addr);
         let (msg_sender, msg_receiver) = mpsc::channel(100);
